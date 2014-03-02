@@ -25,9 +25,9 @@ struct reliable_state {
    /* Add your own data fields below this */
    
     //sender data fields
+   packet_t latest_packet;
    int last_frame_sent; 
    int sender_is_empty;
-   packet_t latest_packet;
 
    //receiver data fields
    int length_received;
@@ -93,9 +93,9 @@ rel_create (conn_t *c, const struct sockaddr_storage *ss,
 void rel_destroy (rel_t *r)
 {
     /* Free any other allocated memory here */
-   if (r->next)
+   if (r->next!= NULL)
        r->next->prev = r->prev;
-   *r->prev = r->next;
+   (*r->prev)->next = r->next;
    conn_destroy (r->c);
    
 }
@@ -110,9 +110,7 @@ void rel_destroy (rel_t *r)
 * allocate a new connection.)
 */
 
-void
-
-rel_demux (const struct config_common *cc,
+void rel_demux (const struct config_common *cc,
           const struct sockaddr_storage *ss,
           packet_t *pkt, size_t len)
 {
@@ -262,7 +260,4 @@ void rel_timer ()
        }
        current = current->next;
    }
- 
-   
-    
 }
