@@ -15,7 +15,7 @@
 #include "rlib.h"
 
 void send_packet(rel_t *s);
-int convert_read_and_check(packet_t* pkt, size_t len);
+
 
 struct reliable_state {
    rel_t *next;            /* Linked list for traversing all connections */
@@ -117,27 +117,6 @@ void rel_demux (const struct config_common *cc,
 }
 
 
-void rel_recvpkt (rel_t *r, packet_t *pkt, size_t n) {
-    //Convert from network to host; return type of data packet
-   int type = convert_read_and_check(pkt, n);
-
-   //If data packet is corrupted, return
-   if (type == -1) return; 
-
-    //If packet has valid ackno, read packet
-   if (r->last_frame_sent == pkt->ackno-1) { //has valid ackno
-       r->sender_is_empty = 1;
-       rel_read(r);
-   } 
-
-   //If data packet, in sequence and can be processed by receiver, add payload to current buffer and output payload.
-   if (type == 2 && r->length_received == 0 && pkt->seqno == r->last_frame_received+1) { 
-       memcpy(r->data_received, pkt->data, pkt->len);
-       r->length_received = pkt->len - 12;
-       rel_output(r);
-   }
-}
-
 /* Convert from network to host, return data packet type*/
 int convert_read_and_check(packet_t* pkt, size_t len) {   
    int old_cksum = pkt->cksum;
@@ -166,6 +145,53 @@ int convert_read_and_check(packet_t* pkt, size_t len) {
    //If data packet with payload, return 2
    pkt->seqno = ntohl(pkt->seqno);
    return 2;
+}
+
+
+void rel_recvpkt (rel_t *r, packet_t *pkt, size_t n) {
+    //Convert from network to host; return type of data packet
+   int type = convert_read_and_check(pkt, n);
+
+   //If data packet is corrupted, return
+   if (type == -1) return; 
+
+    //If data packet is corrupted, return
+   if (r->last_frame_sent == pkt->ackno-1) { //has valid ackno
+       r->sender_is_empty = 1;
+       rel_read(r);
+   } 
+
+   //If data packet, in sequence and can be processed by receiver, add payload to current buffer and output payload.
+   if (type == 2 && r->length_received == 0 && pkt->seqno == r->last_frame_received+1) { 
+       memcpy(r->data_received, pkt->data, pkt->len);
+       r->length_received = pkt->len - 12;
+       rel_output(r);
+   }
+}
+
+/*Convert byte order from host to network */
+void write_packet_conversion(packet_t* packet) {
+   int len = packet->len;
+   packet->len = htons(packet->len);
+   packet->ackno = htonl(packet->ackno);
+   //convert seqno if data packet
+   if(packet->len >= 12) {
+       packet->seqno = htonl(packet->seqno);
+   }
+   packet->cksum = cksum(packet, len);
+
+}
+
+/* Send latest packet with increased ackno */
+void send_packet(rel_t *s) {
+   s->latest_packet.ackno = s->last_frame_received+1;
+   packet_t packet = s->latest_packet;
+   int len = packet.len;
+   write_packet_conversion(&packet);
+   if (conn_sendpkt (s->c, &packet, len) != len) {
+       exit(1);
+   }
+
 }
 
 /*To get the data that you must transmit to the receiver, keep calling conn_input until it drains.
@@ -233,24 +259,5 @@ void rel_timer ()
            send_packet(current);
        }
        current = current->next;
-   }
-}
-
-/* Send latest packet with increased ackno and byte order conversion */
-void send_packet(rel_t *s) {
-   s->latest_packet.ackno = s->last_frame_received+1;
-   packet_t packet = s->latest_packet;
-   int len = packet.len;
-   
-   packet.len = htons(packet.len);
-   packet.ackno = htonl(packet.ackno);
-   //convert seqno if data packet
-   if(packet.len >= 12) {
-       packet.seqno = htonl(packet.seqno);
-   }
-   packet.cksum = cksum(&packet, len);
-
-   if (conn_sendpkt (s->c, &packet, len) != len) {
-     exit(1);
    }
 }
